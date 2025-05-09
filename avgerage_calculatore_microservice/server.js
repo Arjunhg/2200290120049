@@ -8,51 +8,48 @@ const app = express();
 const port = process.env.PORT || 9876;
 const windowSize = parseInt(process.env.WINDOW_SIZE) || 10;
 
-let numStore = new Set(); //creating set for storing and getting new numbers
+let numStore = new Set();
 let numArray = [];
-
 
 const calcAverage = (numbers) => {
     if (numbers.length === 0) return 0;
     const sum = numbers.reduce((a,b) => a+b, 0);
-    return parseFloat((sum/numbers.length).toFixed(2));
+    return parseFloat((sum / numbers.length).toFixed(2));
 };
+
 
 const fetchNumbers = async (type) => {
     try {
-        console.log(`Fetching ${type} numbers...`);
-        console.log(`URL: ${process.env.BASE_URL}/${type}`);
-        console.log(`Auth Token: ${process.env.AUTH_TOKEN}`);
-        
         const response = await axios.get(`${process.env.BASE_URL}/${type}`, {
             headers: {
                 'Authorization': `Bearer ${process.env.AUTH_TOKEN}`
             },
             timeout: 500
         });
-        
-        console.log(`Response received:`, response.data);
-        return response.data.numbers;
+
+        if (response.data && response.data.numbers) {
+            return response.data.numbers;
+        }
+        return [];
     } catch (error) {
-        console.error(`Error fetching ${type} numbers:`, {
-            message: error.message,
-            status: error.response?.status,
-            data: error.response?.data
-        });
+        if (error.code === 'ECONNABORTED') {
+            console.error(`Request timeout for ${type} numbers`);
+        } else {
+            console.error(`Error fetching ${type} numbers:`, error.message);
+        }
         return [];
     }
 };
 
-// main backend functionality and endpoint
 app.get('/numbers/:numberid', async (req, res) => {
     const { numberid } = req.params;
     const valid = ['p', 'f', 'e', 'r'];
-    
+
     if (!valid.includes(numberid)) {
         return res.status(400).json({ error: 'Invalid number type' });
     }
-    
-    const typeMap = { //using map for fast lookup
+
+    const typeMap = {
         'p': 'primes',
         'f': 'fibo',
         'e': 'even',
@@ -60,25 +57,26 @@ app.get('/numbers/:numberid', async (req, res) => {
     };
 
     const prevState = [...numArray];
-    const numbers = await fetchNumbers(typeMap[numberid]); //dynamic num fetch
+    const numbers = await fetchNumbers(typeMap[numberid]);
 
-    numbers.forEach(num => {
-        if (!numStore.has(num)) {
-            numStore.add(num);
-            numArray.push(num);
+    if (numbers.length > 0) {
+        numbers.forEach(num => {
+            if (!numStore.has(num)) {
+                numStore.add(num);
+                numArray.push(num);
+            }
+        });
+
+        while (numArray.length > windowSize) {
+            const removed = numArray.shift();
+            numStore.delete(removed);
         }
-    });
-
-    while (numArray.length > windowSize) {
-        const removed = numArray.shift(); //shift removes from start
-        numStore.delete(removed);
     }
 
-    // giving final output as response to the request
     const response = {
         windowPrevState: prevState,
         windowCurrState: [...numArray],
-        numbers: numbers,
+        numbers,
         avg: calcAverage(numArray)
     };
 
@@ -87,4 +85,4 @@ app.get('/numbers/:numberid', async (req, res) => {
 
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
-}); 
+});
